@@ -1,4 +1,4 @@
-use clap::Parser;
+use rayon::prelude::*;
 use std::num::ParseIntError;
 use windows_sys::Win32::{
     Foundation::{CloseHandle, GetLastError, HANDLE},
@@ -10,13 +10,38 @@ use windows_sys::Win32::{
     },
 };
 
-use crate::lib::{memory::MemoryRegion, utils::pattern_to_bytes};
+use crate::lib::{memory::MemoryRegion, raw_ptr::ProcessHandle, utils::pattern_to_bytes};
 pub struct ProcessOperations {}
 
 impl ProcessOperations {
     pub fn new() -> Self {
         Self {}
     }
+
+    pub fn parallel_scan_process_memory(&self, process_id: u32, pattern: String) {
+        // Use crayon to speed up scanning
+        unsafe {
+            let process_handle =
+                OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, 0, process_id);
+            if process_handle.is_null() {
+                println!("Did not find process");
+                return;
+            }
+            let memory_regions = self.scan_memory_regions(process_handle);
+            print!("Mem regions count: {}", memory_regions.len());
+            let handle = ProcessHandle(process_handle);
+            let matches: Vec<usize> = memory_regions
+                .par_iter()
+                .filter(|region| region.is_readable && region.is_committed)
+                .flat_map(|region| {
+                    self.scan_memory_region(handle.clone().0, region, pattern.as_str())
+                        .unwrap_or_default()
+                })
+                .collect();
+            CloseHandle(process_handle);
+        }
+    }
+
     fn scan_memory_regions(&self, process_handle: HANDLE) -> Vec<MemoryRegion> {
         let mut memory_regions: Vec<MemoryRegion> = Vec::new();
         unsafe {

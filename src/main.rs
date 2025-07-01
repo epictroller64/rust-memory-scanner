@@ -1,7 +1,7 @@
 mod lib;
 fn main() {
     let args = Args::parse();
-    ProcessOperations::new().scan_process_memory(args.pid as u32, args.pattern);
+    ProcessOperations::new().parallel_scan_process_memory(args.pid as u32, args.pattern);
 }
 
 use clap::{Parser, command};
