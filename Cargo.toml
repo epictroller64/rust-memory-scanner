@@ -8,3 +8,4 @@ winapi = { version = "0.3.9", features = ["winnt", "memoryapi", "processthreadsa
 clap = { version = "4.5", features = ["derive"] }
 windows-sys = { version = "0.60.2", features = ["Win32", "Win32_System", "Win32_System_Memory", "Win32_System_Diagnostics", "Win32_System_Diagnostics_Debug", "Win32_System_Threading", "Win32_System_ProcessStatus"]}
 rayon = "1.10.0"
+anyhow = "1.0.98"

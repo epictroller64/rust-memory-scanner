@@ -11,21 +11,30 @@ use windows_sys::Win32::{
 };
 
 use crate::lib::{memory::MemoryRegion, raw_ptr::ProcessHandle, utils::pattern_to_bytes};
-pub struct ProcessOperations {}
+pub struct ProcessOperations {
+    pub last_scan_results: Vec<u8>,
+}
 
 impl ProcessOperations {
     pub fn new() -> Self {
-        Self {}
+        Self {
+            last_scan_results: Vec::new(),
+        }
     }
 
-    pub fn parallel_scan_process_memory(&self, process_id: u32, pattern: String) {
+    pub fn parallel_scan_process_memory(
+        &self,
+        process_id: u32,
+        pattern: &str,
+    ) -> anyhow::Result<Vec<usize>> {
         // Use crayon to speed up scanning
+        let pattern_bytes = pattern_to_bytes(pattern).unwrap();
         unsafe {
             let process_handle =
                 OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, 0, process_id);
             if process_handle.is_null() {
                 println!("Did not find process");
-                return;
+                return Err(anyhow::anyhow!("Process not found"));
             }
             let memory_regions = self.scan_memory_regions(process_handle);
             print!("Mem regions count: {}", memory_regions.len());
@@ -34,11 +43,12 @@ impl ProcessOperations {
                 .par_iter()
                 .filter(|region| region.is_readable && region.is_committed)
                 .flat_map(|region| {
-                    self.scan_memory_region(handle.clone().0, region, pattern.as_str())
+                    self.scan_memory_region(handle.clone().0, region, &pattern_bytes)
                         .unwrap_or_default()
                 })
                 .collect();
             CloseHandle(process_handle);
+            Ok(matches)
         }
     }
 
@@ -99,13 +109,12 @@ impl ProcessOperations {
         &self,
         process_handle: HANDLE,
         region: &MemoryRegion,
-        pattern: &str,
+        pattern_bytes: &Vec<u8>,
     ) -> Result<Vec<usize>, ParseIntError> {
         let mut matches = Vec::new();
         let mut buffer = vec![0u8; 1024 * 1024]; //1MB
         let mut bytes_read = 0;
         let mut current_address = region.base_address;
-        let pattern_bytes = pattern_to_bytes(pattern)?;
         while current_address < region.base_address + region.region_size {
             let remaining_bytes = (region.base_address + region.region_size) - current_address;
             let to_read = std::cmp::min(buffer.len(), remaining_bytes);
@@ -141,6 +150,7 @@ impl ProcessOperations {
 
     pub fn scan_process_memory(&self, process_id: u32, pattern: String) {
         // Scan all memory for the process
+        let pattern_bytes = pattern_to_bytes(pattern.as_str()).unwrap();
         unsafe {
             let process_handle =
                 OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, 0, process_id);
@@ -163,8 +173,7 @@ impl ProcessOperations {
                 //"Base Address: {:X}, Region Size: {:X}",
                 //region.base_address, region.region_size
                 //);
-                if let Ok(found) =
-                    self.scan_memory_region(process_handle, &region, pattern.as_str())
+                if let Ok(found) = self.scan_memory_region(process_handle, &region, &pattern_bytes)
                 {
                     matches.extend(found);
                 }
