@@ -74,7 +74,10 @@ fn main() {
                         &shell_state.last_pattern_bytes,
                     );
                     match rescan_results {
-                        Ok(results) => shell_state.set_process_results(results),
+                        Ok(results) => {
+                            println!("Found {} matches", results.len());
+                            shell_state.set_process_results(results)
+                        }
                         Err(e) => println!("Rescan failed: {}", e),
                     }
                 }
@@ -107,6 +110,85 @@ fn main() {
                 }
             }
             Some(&"exit") => break,
+            Some(&"write") => {
+                if input.len() < 4 {
+                    println!("Usage: write <type> <address> <value>");
+                    continue;
+                }
+                let mode_str = input[1];
+                let address_str = input[2];
+                let value_str = input[3..].join(" ");
+                let address = if address_str.starts_with("0x") || address_str.starts_with("0X") {
+                    usize::from_str_radix(
+                        address_str
+                            .trim_start_matches("0x")
+                            .trim_start_matches("0X"),
+                        16,
+                    )
+                } else {
+                    address_str.parse::<usize>()
+                };
+                let address = match address {
+                    Ok(addr) => addr,
+                    Err(_) => {
+                        println!("Invalid address: {}", address_str);
+                        continue;
+                    }
+                };
+                let bytes = match mode_str {
+                    "string" => match str_to_bytes(&value_str) {
+                        Ok(b) => b,
+                        Err(e) => {
+                            println!("Failed to convert string: {}", e);
+                            continue;
+                        }
+                    },
+                    "i32" => match value_str.parse::<i32>() {
+                        Ok(v) => v.to_le_bytes().to_vec(),
+                        Err(_) => {
+                            println!("Invalid i32 value");
+                            continue;
+                        }
+                    },
+                    "f32" => match value_str.parse::<f32>() {
+                        Ok(v) => v.to_le_bytes().to_vec(),
+                        Err(_) => {
+                            println!("Invalid f32 value");
+                            continue;
+                        }
+                    },
+                    "i64" => match value_str.parse::<i64>() {
+                        Ok(v) => v.to_le_bytes().to_vec(),
+                        Err(_) => {
+                            println!("Invalid i64 value");
+                            continue;
+                        }
+                    },
+                    "f64" => match value_str.parse::<f64>() {
+                        Ok(v) => v.to_le_bytes().to_vec(),
+                        Err(_) => {
+                            println!("Invalid f64 value");
+                            continue;
+                        }
+                    },
+                    _ => {
+                        println!("Unknown type: {}", mode_str);
+                        continue;
+                    }
+                };
+                match shell_state.process_id {
+                    Some(pid) => {
+                        match shell_state
+                            .process_operations
+                            .write_value_to_address(pid, address, bytes)
+                        {
+                            Ok(_) => println!("Write successful to address 0x{:X}", address),
+                            Err(e) => println!("Write failed: {}", e),
+                        }
+                    }
+                    None => println!("Process id is not set"),
+                }
+            }
             _ => println!("{:?}", input),
         }
     }

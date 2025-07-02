@@ -2,11 +2,14 @@ use rayon::prelude::*;
 use std::num::ParseIntError;
 use windows_sys::Win32::{
     Foundation::{CloseHandle, GetLastError, HANDLE},
-    System::Diagnostics::Debug::ReadProcessMemory,
-    System::Memory::{MEM_COMMIT, MEMORY_BASIC_INFORMATION, PAGE_READONLY, PAGE_READWRITE},
-    System::ProcessStatus::{EnumProcessModules, GetModuleFileNameExA},
-    System::Threading::{
-        OpenProcess, PROCESS_ALL_ACCESS, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ,
+    System::{
+        Diagnostics::Debug::{ReadProcessMemory, WriteProcessMemory},
+        Memory::{MEM_COMMIT, MEMORY_BASIC_INFORMATION, PAGE_READONLY, PAGE_READWRITE},
+        ProcessStatus::{EnumProcessModules, GetModuleFileNameExA},
+        Threading::{
+            OpenProcess, PROCESS_ALL_ACCESS, PROCESS_QUERY_INFORMATION, PROCESS_VM_OPERATION,
+            PROCESS_VM_READ, PROCESS_VM_WRITE,
+        },
     },
 };
 
@@ -22,6 +25,76 @@ impl ProcessOperations {
         }
     }
 
+    pub fn write_value_to_address(
+        &self,
+        process_id: u32,
+        address: usize,
+        bytes: Vec<u8>,
+    ) -> anyhow::Result<()> {
+        unsafe {
+            let process_handle = OpenProcess(
+                PROCESS_VM_WRITE | PROCESS_VM_OPERATION | PROCESS_QUERY_INFORMATION,
+                0,
+                process_id,
+            );
+            if process_handle.is_null() {
+                return Err(anyhow::anyhow!("Process not found or access denied"));
+            }
+            let mut bytes_written = 0;
+            let mut write_bytes = bytes.clone();
+            let write_result = WriteProcessMemory(
+                process_handle,
+                address as *mut _,
+                write_bytes.as_mut_ptr() as _,
+                bytes.len(),
+                &mut bytes_written,
+            );
+            let last_error = if write_result == 0 { GetLastError() } else { 0 };
+            CloseHandle(process_handle);
+            if write_result == 0 {
+                println!(
+                    "[DEBUG] WriteProcessMemory failed, GetLastError: {}",
+                    last_error
+                );
+                return Err(anyhow::anyhow!(
+                    "WriteProcessMemory failed, GetLastError: {}",
+                    last_error
+                ));
+            }
+            if bytes_written != bytes.len() {
+                println!(
+                    "[DEBUG] Not all bytes written ({} of {}), GetLastError: {}",
+                    bytes_written,
+                    bytes.len(),
+                    last_error
+                );
+                return Err(anyhow::anyhow!(
+                    "Not all bytes written ({} of {}), GetLastError: {}",
+                    bytes_written,
+                    bytes.len(),
+                    last_error
+                ));
+            }
+            println!(
+                "[DEBUG] WriteProcessMemory succeeded, bytes_written: {}",
+                bytes_written
+            );
+            Ok(())
+        }
+    }
+
+    fn open_process(&self, process_id: u32) -> anyhow::Result<HANDLE> {
+        unsafe {
+            let process_handle =
+                OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, 0, process_id);
+            if process_handle.is_null() {
+                return Err(anyhow::anyhow!("Process not found"));
+            } else {
+                Ok(process_handle)
+            }
+        }
+    }
+
     pub fn scan_memory_addresses(
         &self,
         addresses: &[usize],
@@ -30,11 +103,7 @@ impl ProcessOperations {
     ) -> anyhow::Result<Vec<usize>> {
         let mut matches = Vec::new();
         unsafe {
-            let process_handle =
-                OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, 0, process_id);
-            if process_handle.is_null() {
-                return Err(anyhow::anyhow!("Process not found"));
-            }
+            let process_handle = self.open_process(process_id)?;
             let mut buffer = vec![0u8; pattern_bytes.len()];
             let mut bytes_read = 0;
             for &address in addresses {
@@ -47,6 +116,7 @@ impl ProcessOperations {
                 );
                 if read != 0 && &buffer[..bytes_read] == &pattern_bytes[..] {
                     matches.push(address);
+                    println!("Match: {}", address);
                 }
             }
             CloseHandle(process_handle);
