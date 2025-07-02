@@ -1,6 +1,6 @@
 use std::num::ParseIntError;
 
-pub fn pattern_to_bytes(pattern: &str) -> Result<Vec<u8>, ParseIntError> {
+pub fn str_to_bytes(pattern: &str) -> Result<Vec<u8>, ParseIntError> {
     let mut bytes = Vec::new();
     let mut chars = pattern.chars().collect::<Vec<_>>();
     // Handle odd length by prefixing with 0

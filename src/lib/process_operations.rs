@@ -10,7 +10,7 @@ use windows_sys::Win32::{
     },
 };
 
-use crate::lib::{memory::MemoryRegion, raw_ptr::ProcessHandle, utils::pattern_to_bytes};
+use crate::lib::{memory::MemoryRegion, raw_ptr::ProcessHandle, utils::str_to_bytes};
 pub struct ProcessOperations {
     pub last_scan_results: Vec<u8>,
 }
@@ -22,13 +22,44 @@ impl ProcessOperations {
         }
     }
 
+    pub fn scan_memory_addresses(
+        &self,
+        addresses: &[usize],
+        process_id: u32,
+        pattern_bytes: &Vec<u8>,
+    ) -> anyhow::Result<Vec<usize>> {
+        let mut matches = Vec::new();
+        unsafe {
+            let process_handle =
+                OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, 0, process_id);
+            if process_handle.is_null() {
+                return Err(anyhow::anyhow!("Process not found"));
+            }
+            let mut buffer = vec![0u8; pattern_bytes.len()];
+            let mut bytes_read = 0;
+            for &address in addresses {
+                let read = ReadProcessMemory(
+                    process_handle,
+                    address as *const _,
+                    buffer.as_mut_ptr() as _,
+                    pattern_bytes.len(),
+                    &mut bytes_read,
+                );
+                if read != 0 && &buffer[..bytes_read] == &pattern_bytes[..] {
+                    matches.push(address);
+                }
+            }
+            CloseHandle(process_handle);
+        }
+        Ok(matches)
+    }
+
     pub fn parallel_scan_process_memory(
         &self,
         process_id: u32,
-        pattern: &str,
+        pattern_bytes: &Vec<u8>,
     ) -> anyhow::Result<Vec<usize>> {
         // Use crayon to speed up scanning
-        let pattern_bytes = pattern_to_bytes(pattern).unwrap();
         unsafe {
             let process_handle =
                 OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, 0, process_id);
@@ -150,7 +181,7 @@ impl ProcessOperations {
 
     pub fn scan_process_memory(&self, process_id: u32, pattern: String) {
         // Scan all memory for the process
-        let pattern_bytes = pattern_to_bytes(pattern.as_str()).unwrap();
+        let pattern_bytes = str_to_bytes(pattern.as_str()).unwrap();
         unsafe {
             let process_handle =
                 OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, 0, process_id);
