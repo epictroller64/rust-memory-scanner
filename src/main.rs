@@ -3,6 +3,8 @@ use clap::{Parser, command};
 
 use crate::lib::{process_operations::ProcessOperations, utils::str_to_bytes};
 fn main() {
+    // Clear the console at startup
+    clear_console();
     let mut shell_state = ShellState::new();
     loop {
         print!("scanner> ");
@@ -232,4 +234,21 @@ struct Args {
 
     #[arg(short, long)]
     pattern: String,
+}
+
+// Add a function to clear the console
+fn clear_console() {
+    #[cfg(windows)]
+    {
+        // Windows: use 'cls' command
+        std::process::Command::new("cmd")
+            .args(["/C", "cls"])
+            .status()
+            .unwrap();
+    }
+    #[cfg(unix)]
+    {
+        // Unix: use 'clear' command
+        std::process::Command::new("clear").status().unwrap();
+    }
 }
